@@ -2,12 +2,87 @@
 //
 
 #include <iostream>
+#include <iomanip>
+#include <fstream>
+#include <algorithm>
+#include <vector>
+#include <format>
+#include <chrono>
 #include <Windows.h>
 #include "MSCI2C.h"
 
-int main()
+void showUsage(void)
 {
+    std::cout << "Usage: " << std::endl;
+    std::cout << "\t-h  This help" << std::endl;
+    std::cout << "\t-f filename - where to send timestampped output > " << std::endl;
+}
+
+
+class InputParser {
+public:
+    InputParser(int& argc, char** argv) {
+        for (int i = 1; i < argc; ++i)
+            this->tokens.push_back(std::string(argv[i]));
+    }
+    /// @author iain
+    const std::string& getCmdOption(const std::string& option) const {
+        std::vector<std::string>::const_iterator itr;
+        itr = std::find(this->tokens.begin(), this->tokens.end(), option);
+        if (itr != this->tokens.end() && ++itr != this->tokens.end()) {
+            return *itr;
+        }
+        static const std::string empty_string("");
+        return empty_string;
+    }
+    /// @author iain
+    bool cmdOptionExists(const std::string& option) const {
+        return std::find(this->tokens.begin(), this->tokens.end(), option)
+            != this->tokens.end();
+    }
+private:
+    std::vector <std::string> tokens;
+};
+
+std::string get_file_timestamp()
+{
+    const auto now = std::chrono::system_clock::now();
+    const auto in_time_t = std::chrono::system_clock::to_time_t(now);
+
+    std::stringstream output_stream;
+
+    struct tm time_info;
+    const auto errno_value = localtime_s(&time_info, &in_time_t);
+    if (errno_value != 0)
+    {
+        throw std::runtime_error("localtime_s() failed: " + std::to_string(errno_value));
+    }
+
+    output_stream << std::put_time(&time_info, "%Y-%m-%d.%H:%M:%S");
+    return output_stream.str();
+}
+
+int main(int argc, char *argv[])
+{
+    bool saveOutput = false;
+    std::ofstream outFile;
+
     std::cout << "Temperature Sensors on I2C bus 0!\n";
+    
+    InputParser input(argc, argv);
+    if (input.cmdOptionExists("-h")) {
+        showUsage();
+        return 0;
+    }
+
+    if (input.cmdOptionExists("-f")) {
+
+        const std::string& filename = input.getCmdOption("-f");
+        if (!filename.empty()) {
+            outFile = std::ofstream(filename, std::ios_base::app);
+            saveOutput = true;
+        }
+    }
 
     // get information about the available I2C busses:
     unsigned int nbrI2CControllers;
@@ -98,6 +173,11 @@ int main()
         printf("Raw temp is %d (0x%0X)\n", rawtemp, rawtemp);
         temp = rawtemp * 0.0625;
         printf("Temperature on sensor 0x%02X is %f degrees C\n", i2cAddr, temp);
+        if (saveOutput) {
+            //std::string formattedString = std::format(" Temperature near CPU (sensor 0x{:02X}) is {:f} degrees C", i2cAddr, temp);
+            std::string formattedString = std::format(", {:f}, ", temp);
+            outFile << get_file_timestamp() << formattedString;
+        }
         printf("----------------------------------------------------\n");
 
         // Now let's read the Temperature in reg 0x00 for 0x49
@@ -114,6 +194,11 @@ int main()
         printf("Raw temp is %d (0x%0X)\n", rawtemp, rawtemp);
         temp = rawtemp * 0.0625;
         printf("Temperature on sensor 0x%02X is %f degrees C\n", i2cAddr, temp);
+        if (saveOutput) {
+            //std::string formattedString = std::format(" Temperature near CPU (sensor 0x{:02X}) is {:f} degrees C", i2cAddr, temp);
+            std::string formattedString = std::format("{:f}", temp);
+            outFile << formattedString << std::endl;
+        }
         printf("----------------------------------------------------\n");
 
         Sleep(2000);
